@@ -1,76 +1,107 @@
-import streamlit as st
+from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
+import streamlit as st
+
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import MinMaxScaler
+
 
 def main() :
-    st.title('K-means 클러스터링')
+    st.title('K-Means 클러스터링')
 
-    # 1. csv 파일을 업로드 할 수 있다.
-    file = st.file_uploader('CSV 파일 업로드',type=['csv'])
-
-    # 2. 데이터 프레임으로 읽어오기
+    # 1. csv 파일을 업로드 할수 있다.
+    file = st.file_uploader('CSV파일 업로드', type=['csv'])
 
     if file is not None :
-        df=pd.read_csv(file)
-        st.dataframe(df)
-    # 3. X로 설정할 데이터를 선택해주세요.
-        st.dataframe(df.isna().sum())
-        # df의 비어있는 데이터 삭제
-        df.dropna(inplace=True)
-        selected_x = st.multiselect('X로 설정할 데이터를 선택해주세요',df.columns)
-        X = df.loc[:,selected_x]
-        if len(X) > 0 : 
-            st.dataframe(X)
-            # X의 컬럼 데이터가 문자가 있는지 확인
-            st.text('컬럼 데이터의 문자가 있는지 확인(object : 문자)')
-            st.dataframe(X.dtypes)
-            X_object_column=X.columns.values[X.dtypes == 'object']
-            if X[X_object_column].nunique().values == 2 :
-                # label 실행
-                encoder = LabelEncoder()
-                st.dataframe(X[X_object_column])
-                st.text(X_object_column)
-                X[X_object_column] = pd.DataFrame(encoder.fit_transform( X[X_object_column] ))
-                st.dataframe(X)
-            elif X[X_object_column].nunique().values > 2:
-                # one-hot 실행
-                X_list = X.columns.values.tolist()
-                X_list=X_list.index(X_object_column)
-                ct = ColumnTransformer( [ ( 'encoder', OneHotEncoder() , [X_list]  ) ] , 
-                  remainder= 'passthrough' )
-                X = ct.fit_transform(X)
-                st.dataframe(X)
-        # 4. wcss 를 위한 그룹의 갯수를 정해달라고 하자.
-            st.subheader('wcss를 위한 클러스터링 갯수를 선택')
-            slider_size = st.slider('최대 그룹 선택',min_value=2,max_value=20,value=10)
-            wcss = []
-            if slider_size < len(X) :
-                for k in np.arange(1,slider_size+1) :
-                    kmeans=KMeans(n_clusters=k , random_state=5)
-                    kmeans.fit(X)
-                    wcss.append(kmeans.inertia_)
-            # 5. 엘보우 메소드를 차트로 나타내시오.
-                fig = plt.figure()
-                plt.plot(np.arange(1,slider_size+1) , wcss)
-                plt.title('The Elbow Method')
-                plt.xlabel('Number of Clusters')
-                plt.ylabel('WCSS')
-                st.pyplot(fig)
-            # 7. 실제로 그룹핑할 갯수를 선택 .
-                # cluster_size = st.slider('그룹 갯수 결정',min_value=1,max_value=slider_size)
-                cluster_size = st.number_input('그룹 갯수 결정',1,slider_size)
-            # 8. 실제로 kmeas 작동하기
-                kmeans = KMeans(n_clusters=cluster_size,random_state=5)
-                y_pred = kmeans.fit_predict(X)
-                df['Group'] = y_pred
-                st.dataframe(df.sort_values('Group'))
+        # csv 파일은, 판다스로 읽어서 화면에 보여준다.
+        df = pd.read_csv(file)
+        st.dataframe( df )
+        column_list = df.columns
+        selected_columns = st.multiselect('X로 사용할 컬럼을 선택하세요', column_list)
 
-            # 9. df 저장
-                df.to_csv('result.csv')
+        if len(selected_columns) != 0 : 
+            X = df[selected_columns]
+            st.dataframe(X)
+
+            # 문자열이 들어있으면 처리한 후에 화면에 보여주자.
+            X_new = pd.DataFrame()
+
+            for name in X.columns :
+                print(name)    
+                # 각 컬럼 데이터를 가져온다.
+                data = X[name]
+                
+                # 문자열인지 아닌지 나눠서 처리하면 된다. 
+                if data.dtype == object :
+                    
+                    # 문자열이니까, 갯수가 2개인지 아닌지 파악해서
+                    # 2개이면 레이블 인코딩 하고,
+                    # 그렇지 않으면 원핫인코딩 하도록 코드 작성
+                    
+                    if data.nunique() <= 2 :
+                        # 레이블 인코딩
+                        label_encoder = LabelEncoder()
+                        X_new[name] = label_encoder.fit_transform(data)            
+                        
+                    else :
+                        # 원핫인코딩
+                        ct = ColumnTransformer( [ ('encoder', OneHotEncoder(), [0] ) ] , 
+                                remainder='passthrough' )
+                        
+                        col_names = sorted(data.unique())
+                        
+                        X_new[ col_names ] = ct.fit_transform(  data.to_frame()  )
+
+                else :
+                    # 숫자 데이터 처리
+                    
+                    X_new[name] = data
+
+            scaler = MinMaxScaler()
+            X_new = scaler.fit_transform(X_new)
+
+            st.dataframe(X_new)
+
+            st.subheader('WCSS를 위한 클러스터링 갯수를 선택')
+
+            max_number = st.slider('최대 그룹 선택', 2, 20, value=10)
+            wcss = []
+            for k in np.arange(1, max_number+1) :
+                kmeans = KMeans(n_clusters= k, random_state=5)
+                kmeans.fit(X_new)
+                wcss.append( kmeans.inertia_ )
+
+            # st.write(wcss)
+
+            fig1 = plt.figure()
+            x = np.arange(1, max_number+1)
+            plt.plot( x, wcss )
+            plt.title('The Elbow Method')
+            plt.xlabel('Number of Clusters')
+            plt.ylabel('WCSS')
+            st.pyplot(fig1)
+
+
+            # 실제로 그룹핑할 갯수 선택!
+            # k = st.slider('그룹 갯수 결정', 1, max_number)
+
+            k = st.number_input('그룹 갯수 결정', 1, max_number)
+
+            kmeans = KMeans(n_clusters= k, random_state=5)
+
+            y_pred = kmeans.fit_predict(X_new)
+
+            df['Group'] = y_pred
+
+            st.dataframe( df.sort_values('Group')  )
+
+
+            df.to_csv('result.csv')
+
 
 if __name__ == '__main__' :
     main()
+
